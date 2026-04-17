@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Snake vs AI</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#080810;color:#ddd;
+  font-family:'Courier New',monospace;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;user-select:none;
+}
+h1{font-size:1.9rem;letter-spacing:5px;color:#4ade80;text-shadow:0 0 25px #4ade8050;margin-bottom:10px}
+#hud{display:flex;gap:36px;margin-bottom:10px}
+.hi{text-align:center}
+.hl{font-size:.65rem;letter-spacing:2px;color:#444;text-transform:uppercase}
+.hv{font-size:1.3rem;font-weight:bold;margin-top:2px}
+canvas{display:block;border:1px solid #151525;border-radius:3px;outline:none}
+#hint{margin-top:8px;font-size:.7rem;color:#2a2a40;letter-spacing:1px}
+#ov{
+  position:fixed;inset:0;background:rgba(4,4,10,.93);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:11px;z-index:9;
+}
+#ov h2{font-size:2.2rem;letter-spacing:6px}
+.sub{color:#444;font-size:.85rem;letter-spacing:2px}
+.br{display:flex;gap:10px;margin-top:6px}
+button{
+  padding:9px 22px;border-radius:3px;border:1.5px solid;background:transparent;
+  font-family:inherit;font-size:.85rem;font-weight:bold;letter-spacing:2px;cursor:pointer;
+  transition:background .12s,transform .08s;
+}
+button:hover{transform:translateY(-1px)}
+button:active{transform:translateY(0)}
+.e{color:#4ade80;border-color:#4ade80}.e:hover{background:#4ade8012}
+.m{color:#facc15;border-color:#facc15}.m:hover{background:#facc1512}
+.h{color:#c084fc;border-color:#c084fc}.h:hover{background:#c084fc12}
+.desc{font-size:.75rem;color:#383850;text-align:center;max-width:360px;line-height:1.75;margin-top:2px}
+.gs{font-size:1.4rem;color:#facc15;letter-spacing:2px}
+</style>
+</head>
+<body>
+<h1>SNAKE &nbsp;<span style="color:#222">vs</span>&nbsp; AI</h1>
+<div id="hud">
+  <div class="hi"><div class="hl">You</div><div class="hv" id="hS" style="color:#4ade80">0</div></div>
+  <div class="hi"><div class="hl">AI</div><div class="hv" id="hA" style="color:#f87171">0</div></div>
+  <div class="hi"><div class="hl">Best</div><div class="hv" id="hB" style="color:#facc15">0</div></div>
+  <div class="hi"><div class="hl">Mode</div><div class="hv" id="hM" style="color:#444">—</div></div>
+  <div class="hi"><div class="hl">Speed</div><div class="hv" id="hL" style="color:#818cf8">1×</div></div>
+</div>
+<canvas id="c" width="600" height="600" tabindex="0"></canvas>
+<div id="hint">↑↓←→ / WASD &nbsp;·&nbsp; P pause</div>
+
+<div id="ov">
+  <h2 style="color:#4ade80">SNAKE <span style="color:#1c1c2e">vs</span> AI</h2>
+  <div class="sub">select difficulty</div>
+  <div class="br">
+    <button class="e" onclick="startGame('easy')">EASY</button>
+    <button class="m" onclick="startGame('medium')">MEDIUM</button>
+    <button class="h" onclick="startGame('hard')">HARD</button>
+  </div>
+  <div class="desc">
+    Easy &mdash; AI is slow &amp; random, never grows<br>
+    Medium &mdash; AI grows every 2 apples, greedy path<br>
+    Hard &mdash; AI grows every apple, A&#9733; + prediction
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONSTANTS
+// ─────────────────────────────────────────────
+const CV = document.getElementById('c');
+const cx = CV.getContext('2d');
+const W = 600, H = 600, COLS = 20, ROWS = 20, SZ = 30;
+
+// Direction singletons — use === for comparisons
+const U={x:0,y:-1}, D={x:0,y:1}, L={x:-1,y:0}, R={x:1,y:0};
+const DIRS = [U, D, L, R];
+const OPP  = new Map([[U,D],[D,U],[L,R],[R,L]]);
+
+const MCFG = {
+  easy:  { pBase:165, eBase:220, grows:false,    ec:'#f87171', en:'EASY'   },
+  medium:{ pBase:140, eBase:148, grows:'every2', ec:'#fb923c', en:'MED'    },
+  hard:  { pBase:120, eBase:100, grows:true,     ec:'#c084fc', en:'HARD'   },
+};
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let G = {}, bestScore = 0;
+let animID = null, lastP = 0, lastE = 0;
+let running = false, paused = false;
+
+function newGame(mode) {
+  const cfg = MCFG[mode];
+  G = {
+    mode, cfg,
+    p: { body:[{x:4,y:10},{x:3,y:10},{x:2,y:10}], dir:R, nd:R, score:0, grow:0, alive:true },
+    e: { body:[{x:15,y:10},{x:16,y:10},{x:17,y:10}], dir:L, score:0, ate:0, grow:0, alive:true },
+    apple: null, flash: null, applesTotal: 0, level: 1,
+  };
+  spawnApple();
+  setText('hS','0'); setText('hA','0'); setText('hL','1×');
+  setText('hM', cfg.en);
+  document.getElementById('hM').style.color = cfg.ec;
+  document.getElementById('hA').style.color = cfg.ec;
+}
+
+// ─────────────────────────────────────────────
+//  APPLE
+// ─────────────────────────────────────────────
+function spawnApple() {
+  const taken = new Set([...G.p.body,...G.e.body].map(p=>`${p.x},${p.y}`));
+  const free = [];
+  for (let x=0;x<COLS;x++) for (let y=0;y<ROWS;y++)
+    if (!taken.has(`${x},${y}`)) free.push({x,y});
+  G.apple = free[Math.floor(Math.random()*free.length)];
+}
+
+// ─────────────────────────────────────────────
+//  SPEED / LEVEL
+// ─────────────────────────────────────────────
+function pInterval() { return Math.max(70,  G.cfg.pBase - (G.level-1)*6); }
+function eInterval() { return Math.max(55,  G.cfg.eBase - (G.level-1)*6); }
+
+function checkLevel() {
+  const lv = 1 + Math.floor(G.applesTotal / 5);
+  if (lv !== G.level) { G.level = lv; setText('hL', lv+'×'); }
+}
+
+// ─────────────────────────────────────────────
+//  PLAYER STEP
+// ─────────────────────────────────────────────
+function stepP() {
+  if (!G.p.alive) return;
+  G.p.dir = G.p.nd;
+  const nh = nxt(G.p.body[0], G.p.dir);
+  if (oob(nh))                  return die('Hit the wall!');
+  if (hits(G.p.body, nh, true)) return die('Bit yourself!');
+  if (hits(G.e.body, nh, false))return die('Hit the AI snake!');
+
+  const ate = eq(nh, G.apple);
+  G.p.body.unshift(nh);
+  if (ate) {
+    G.p.score++; G.p.grow++; G.applesTotal++;
+    setText('hS', G.p.score);
+    if (G.p.score > bestScore) { bestScore = G.p.score; setText('hB', bestScore); }
+    G.flash = {...G.apple, t:10};
+    checkLevel(); spawnApple();
+  }
+  if (G.p.grow > 0) G.p.grow--; else G.p.body.pop();
+}
+
+function die(msg) { G.p.alive = false; setTimeout(()=>gameOver(msg), 350); }
+
+// ─────────────────────────────────────────────
+//  ENEMY STEP
+// ─────────────────────────────────────────────
+function stepE() {
+  if (!G.p.alive || !G.e.alive) return;
+  const d = aiDir();
+  G.e.dir = d;
+  const nh = nxt(G.e.body[0], d);
+
+  const hitSelf   = oob(nh) || hits(G.e.body, nh, true);
+  const hitPlayer = hits(G.p.body, nh, false);
+
+  // Easy: enemy respawns on any problematic collision (never kills player by bumping)
+  if (hitSelf || (G.mode === 'easy' && hitPlayer)) { respawnE(); return; }
+  // Medium/Hard: enemy running into player kills player
+  if (hitPlayer) return die('The AI ran into you!');
+
+  const ate = eq(nh, G.apple);
+  G.e.body.unshift(nh);
+  if (ate) {
+    G.e.score++; G.e.ate++; G.applesTotal++;
+    setText('hA', G.e.score);
+    checkLevel();
+    G.flash = {...G.apple, t:10};
+    spawnApple();
+    if (G.cfg.grows === true) G.e.grow++;
+    else if (G.cfg.grows === 'every2' && G.e.ate % 2 === 0) G.e.grow++;
+  }
+  if (G.e.grow > 0) G.e.grow--; else G.e.body.pop();
+}
+
+function respawnE() {
+  const ph = G.p.body[0];
+  const taken = new Set(G.p.body.map(p=>`${p.x},${p.y}`));
+  let best = null, bd = -1;
+  for (let x=1;x<COLS-2;x++) for (let y=1;y<ROWS-1;y++) {
+    if (!taken.has(`${x},${y}`) && !taken.has(`${x+1},${y}`) && !taken.has(`${x+2},${y}`)) {
+      const d = Math.abs(x-ph.x)+Math.abs(y-ph.y);
+      if (d > bd) { bd=d; best={x,y}; }
+    }
+  }
+  if (best) {
+    G.e.body = [{x:best.x,y:best.y},{x:best.x+1,y:best.y},{x:best.x+2,y:best.y}];
+    G.e.dir = L; G.e.grow = 0;
+  }
+}
+
+// ─────────────────────────────────────────────
+//  AI LOGIC
+// ─────────────────────────────────────────────
+function aiDir() {
+  const head = G.e.body[0];
+  const safe = DIRS.filter(d => canStep(head, d));
+  if (!safe.length) return G.e.dir;
+  if (G.mode === 'easy')   return easyAI(head, safe);
+  if (G.mode === 'medium') return medAI(head, safe);
+  return hardAI(head, safe);
+}
+
+function canStep(head, d) {
+  const n = nxt(head, d);
+  if (oob(n)) return false;
+  if (hits(G.e.body, n, true)) return false;
+  // Medium/Hard: treat player body as obstacle
+  if (G.mode !== 'easy' && hits(G.p.body, n, false)) return false;
+  return true;
+}
+
+// Easy: 65% greedy toward apple, 35% random safe step
+function easyAI(head, safe) {
+  if (Math.random() < 0.65) {
+    const t = toward(head, G.apple, safe);
+    if (t) return t;
+  }
+  return safe[Math.floor(Math.random()*safe.length)];
+}
+
+// Medium: greedy, also sidestep predicted player head
+function medAI(head, safe) {
+  const pNext = nxt(G.p.body[0], G.p.nd);
+  const pool = safe.filter(d => { const n=nxt(head,d); return n.x!==pNext.x||n.y!==pNext.y; });
+  const dirs = pool.length ? pool : safe;
+  return toward(head, G.apple, dirs) || dirs[0];
+}
+
+// Hard: A* to apple, obstacles = enemy body + player body (tails excluded)
+function hardAI(head, safe) {
+  const obs = new Set([
+    ...G.e.body.slice(1, -1).map(p=>`${p.x},${p.y}`),
+    ...G.p.body.slice(0, -1).map(p=>`${p.x},${p.y}`),
+  ]);
+  const path = astar(head, G.apple, obs);
+  if (path && path.length > 1) {
+    const nx = path[1];
+    const d = DIRS.find(d => head.x+d.x===nx.x && head.y+d.y===nx.y);
+    if (d && safe.includes(d)) return d;
+  }
+  return toward(head, G.apple, safe) || safe[0];
+}
+
+function toward(head, target, dirs) {
+  let best=null, bd=Infinity;
+  dirs.forEach(d => {
+    const n=nxt(head,d), dist=md(n,target);
+    if (dist < bd) { bd=dist; best=d; }
+  });
+  return best;
+}
+
+function astar(start, goal, obs) {
+  const key = p => `${p.x},${p.y}`;
+  const h   = p => md(p, goal);
+  const open   = [{pos:start, g:0, f:h(start), par:null}];
+  const seen   = new Map([[key(start), 0]]);
+  const closed = new Set();
+  while (open.length) {
+    open.sort((a,b) => a.f - b.f);
+    const cur = open.shift();
+    const k = key(cur.pos);
+    if (closed.has(k)) continue;
+    closed.add(k);
+    if (cur.pos.x===goal.x && cur.pos.y===goal.y) {
+      const path=[]; let n=cur; while(n){path.unshift(n.pos);n=n.par;} return path;
+    }
+    for (const d of DIRS) {
+      const n=nxt(cur.pos,d), nk=key(n);
+      if (oob(n)||obs.has(nk)||closed.has(nk)) continue;
+      const g = cur.g+1;
+      if (!seen.has(nk)||g<seen.get(nk)) {
+        seen.set(nk,g);
+        open.push({pos:n, g, f:g+h(n), par:cur});
+      }
+    }
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────
+function oob(p)  { return p.x<0||p.x>=COLS||p.y<0||p.y>=ROWS; }
+function hits(body, pos, skipTail) {
+  const b = skipTail ? body.slice(0,-1) : body;
+  return b.some(s=>s.x===pos.x&&s.y===pos.y);
+}
+function nxt(p,d)  { return {x:p.x+d.x, y:p.y+d.y}; }
+function eq(a,b)   { return a.x===b.x && a.y===b.y; }
+function md(a,b)   { return Math.abs(a.x-b.x)+Math.abs(a.y-b.y); }
+function setText(id,v){ document.getElementById(id).textContent=v; }
+function darken(hex, amt) {
+  const r=Math.max(0,parseInt(hex.slice(1,3),16)-amt);
+  const g=Math.max(0,parseInt(hex.slice(3,5),16)-amt);
+  const b=Math.max(0,parseInt(hex.slice(5,7),16)-amt);
+  return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+
+// ─────────────────────────────────────────────
+//  GAME LOOP
+// ─────────────────────────────────────────────
+function startGame(mode) {
+  document.getElementById('ov').style.display='none';
+  newGame(mode);
+  running=true; paused=false;
+  lastP=lastE=performance.now();
+  if (animID) cancelAnimationFrame(animID);
+  animID=requestAnimationFrame(loop);
+}
+
+function loop(ts) {
+  if (!running) return;
+  if (!paused) {
+    if (ts-lastP >= pInterval()) { stepP(); lastP=ts; }
+    if (ts-lastE >= eInterval()) { stepE(); lastE=ts; }
+    if (G.flash) { G.flash.t--; if (!G.flash.t) G.flash=null; }
+  }
+  draw();
+  animID=requestAnimationFrame(loop);
+}
+
+// ─────────────────────────────────────────────
+//  RENDERING
+// ─────────────────────────────────────────────
+function draw() {
+  // Background
+  cx.fillStyle='#08080f';
+  cx.fillRect(0,0,W,H);
+
+  // Grid lines
+  cx.strokeStyle='#0e0e1c'; cx.lineWidth=.5;
+  for (let i=0;i<=COLS;i++){
+    cx.beginPath(); cx.moveTo(i*SZ,0); cx.lineTo(i*SZ,H); cx.stroke();
+  }
+  for (let j=0;j<=ROWS;j++){
+    cx.beginPath(); cx.moveTo(0,j*SZ); cx.lineTo(W,j*SZ); cx.stroke();
+  }
+
+  // Eaten-apple flash ring
+  if (G.flash) {
+    const a=G.flash.t/10;
+    cx.save(); cx.globalAlpha=a*.75; cx.strokeStyle='#fff'; cx.lineWidth=2;
+    cx.beginPath();
+    cx.arc(G.flash.x*SZ+SZ/2, G.flash.y*SZ+SZ/2, SZ/2*(1+(1-a)*.55), 0, Math.PI*2);
+    cx.stroke(); cx.restore();
+  }
+
+  drawApple();
+  const ec=G.cfg ? G.cfg.ec : '#f87171';
+  drawSnake(G.e, ec, darken(ec,35), darken(ec,70));
+  drawSnake(G.p, '#4ade80','#22c55e','#166534');
+  if (paused) drawPause();
+}
+
+function drawApple() {
+  if (!G.apple) return;
+  const ax=G.apple.x*SZ+SZ/2, ay=G.apple.y*SZ+SZ/2, r=SZ/2-4;
+  cx.save();
+  cx.shadowColor='#ff3d57'; cx.shadowBlur=15;
+  cx.fillStyle='#ff3d57';
+  cx.beginPath(); cx.arc(ax,ay,r,0,Math.PI*2); cx.fill();
+  cx.restore();
+  // shine
+  cx.fillStyle='rgba(255,255,255,.2)';
+  cx.beginPath(); cx.arc(ax-r*.3, ay-r*.35, r*.3, 0, Math.PI*2); cx.fill();
+  // stem
+  cx.strokeStyle='#4ade80'; cx.lineWidth=1.5;
+  cx.beginPath(); cx.moveTo(ax,ay-r); cx.lineTo(ax+2,ay-r-5); cx.stroke();
+}
+
+function drawSnake(snake, hc, bc, dc) {
+  if (!snake || !snake.alive || !snake.body.length) return;
+  snake.body.forEach((seg,i) => {
+    const isH = i===0;
+    const col = isH ? hc : (i%2===0 ? bc : dc);
+    if (isH) { cx.save(); cx.shadowColor=hc; cx.shadowBlur=10; }
+    cx.fillStyle=col;
+    rrect(seg.x*SZ+2, seg.y*SZ+2, SZ-4, SZ-4, isH?8:5);
+    cx.fill();
+    if (isH) cx.restore();
+  });
+
+  // Eyes on head
+  const h=snake.body[0], d=snake.dir;
+  const hx=h.x*SZ+SZ/2, hy=h.y*SZ+SZ/2;
+  const fw=4, sw=6;
+  let eyes=[];
+  if      (d===R) eyes=[{x:hx+fw,y:hy-sw},{x:hx+fw,y:hy+sw}];
+  else if (d===L) eyes=[{x:hx-fw,y:hy-sw},{x:hx-fw,y:hy+sw}];
+  else if (d===U) eyes=[{x:hx-sw,y:hy-fw},{x:hx+sw,y:hy-fw}];
+  else            eyes=[{x:hx-sw,y:hy+fw},{x:hx+sw,y:hy+fw}];
+  eyes.forEach(e => {
+    cx.fillStyle='#fff'; cx.beginPath(); cx.arc(e.x,e.y,2.5,0,Math.PI*2); cx.fill();
+    cx.fillStyle='#111'; cx.beginPath(); cx.arc(e.x,e.y,1.2,0,Math.PI*2); cx.fill();
+  });
+}
+
+function drawPause() {
+  cx.fillStyle='rgba(0,0,0,.55)'; cx.fillRect(0,0,W,H);
+  cx.textAlign='center';
+  cx.fillStyle='#ddd'; cx.font='bold 42px "Courier New"'; cx.fillText('PAUSED',W/2,H/2);
+  cx.fillStyle='#444'; cx.font='17px "Courier New"'; cx.fillText('P  to resume',W/2,H/2+40);
+  cx.textAlign='left';
+}
+
+function rrect(x,y,w,h,r) {
+  cx.beginPath();
+  cx.moveTo(x+r,y);
+  cx.lineTo(x+w-r,y);   cx.quadraticCurveTo(x+w,y,  x+w,y+r);
+  cx.lineTo(x+w,y+h-r); cx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  cx.lineTo(x+r,y+h);   cx.quadraticCurveTo(x,  y+h,x,  y+h-r);
+  cx.lineTo(x,  y+r);   cx.quadraticCurveTo(x,  y,  x+r,y);
+  cx.closePath();
+}
+
+// ─────────────────────────────────────────────
+//  GAME OVER
+// ─────────────────────────────────────────────
+function gameOver(reason) {
+  running=false;
+  const ov=document.getElementById('ov');
+  ov.innerHTML=`
+    <h2 style="color:#f87171;letter-spacing:4px">GAME OVER</h2>
+    <div class="sub">${reason}</div>
+    <div class="gs">Score: ${G.p.score}</div>
+    <div class="br">
+      <button class="e" onclick="startGame('easy')">EASY</button>
+      <button class="m" onclick="startGame('medium')">MEDIUM</button>
+      <button class="h" onclick="startGame('hard')">HARD</button>
+    </div>
+    <div class="desc">Pick a mode to play again</div>
+  `;
+  ov.style.display='flex';
+}
+
+// ─────────────────────────────────────────────
+//  INPUT
+// ─────────────────────────────────────────────
+const KM={ArrowUp:U,ArrowDown:D,ArrowLeft:L,ArrowRight:R,
+          w:U,s:D,a:L,d:R,W:U,S:D,A:L,D:R};
+
+document.addEventListener('keydown', e => {
+  if (e.key==='p'||e.key==='P') { if (running) paused=!paused; return; }
+  if (!running||paused) return;
+  const dir=KM[e.key]; if (!dir) return;
+  e.preventDefault();
+  // Prevent 180° reversal
+  if (OPP.get(dir) !== G.p.dir) G.p.nd=dir;
+});
+
+// Initial canvas fill
+cx.fillStyle='#08080f'; cx.fillRect(0,0,W,H);
+</script>
+</body>
+</html>
