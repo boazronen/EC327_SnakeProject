@@ -6,7 +6,7 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{
-  background:#080810;color:#EB8210;
+  background:#080810;color:#ddd;
   font-family:'Courier New',monospace;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   min-height:100vh;user-select:none;
@@ -16,7 +16,7 @@ h1{font-size:1.9rem;letter-spacing:5px;color:#4ade80;text-shadow:0 0 25px #4ade8
 .hi{text-align:center}
 .hl{font-size:.65rem;letter-spacing:2px;color:#444;text-transform:uppercase}
 .hv{font-size:1.3rem;font-weight:bold;margin-top:2px}
-canvas{display:block;border:1px solid #151525;border-radius:3px;outline:none}
+canvas{display:block;border:1px solid #ff3d57;border-radius:3px;outline:none; box-shadow: 0 0 15px rgba(255, 61, 87, 0.25);}
 #hint{margin-top:8px;font-size:.7rem;color:#2a2a40;letter-spacing:1px}
 #ov{
   position:fixed;inset:0;background:rgba(4,4,10,.93);
@@ -44,7 +44,7 @@ button:active{transform:translateY(0)}
 <h1>SNAKE &nbsp;<span style="color:#222">vs</span>&nbsp; Nagini</h1>
 <div id="hud">
   <div class="hi"><div class="hl">You</div><div class="hv" id="hS" style="color:#4ade80">0</div></div>
-  <div class="hi"><div class="hl">AI</div><div class="hv" id="hA" style="color:#f87171">0</div></div>
+  <div class="hi"><div class="hl">Nagini</div><div class="hv" id="hA" style="color:#f87171">0</div></div>
   <div class="hi"><div class="hl">Best</div><div class="hv" id="hB" style="color:#facc15">0</div></div>
   <div class="hi"><div class="hl">Mode</div><div class="hv" id="hM" style="color:#444">—</div></div>
   <div class="hi"><div class="hl">Speed</div><div class="hv" id="hL" style="color:#818cf8">1×</div></div>
@@ -61,9 +61,9 @@ button:active{transform:translateY(0)}
     <button class="h" onclick="startGame('hard')">HARD</button>
   </div>
   <div class="desc">
-    Easy &mdash; AI is slow &amp; random, never grows<br>
-    Medium &mdash; AI grows every 2 apples, greedy path<br>
-    Hard &mdash; AI grows every apple, A&#9733; + prediction
+    Easy &mdash; Nagini is slow &amp; random, never grows<br>
+    Medium &mdash; Nagini grows every 2 apples, greedy path<br>
+    Hard &mdash; Nagini grows every apple, A&#9733; + prediction
   </div>
 </div>
 
@@ -139,7 +139,7 @@ function stepP() {
   const nh = nxt(G.p.body[0], G.p.dir);
   if (oob(nh))                  return die('Hit the wall!');
   if (hits(G.p.body, nh, true)) return die('Bit yourself!');
-  if (hits(G.e.body, nh, false))return die('Hit the AI snake!');
+  if (hits(G.e.body, nh, false))return die('Hit Nagini!');
 
   const ate = eq(nh, G.apple);
   G.p.body.unshift(nh);
@@ -170,7 +170,7 @@ function stepE() {
   // Easy: enemy respawns on any problematic collision (never kills player by bumping)
   if (hitSelf || (G.mode === 'easy' && hitPlayer)) { respawnE(); return; }
   // Medium/Hard: enemy running into player kills player
-  if (hitPlayer) return die('The AI ran into you!');
+  if (hitPlayer) return die('Nagini ran into you!');
 
   const ate = eq(nh, G.apple);
   G.e.body.unshift(nh);
@@ -203,7 +203,7 @@ function respawnE() {
 }
 
 // ─────────────────────────────────────────────
-//  AI LOGIC
+//  BOT LOGIC
 // ─────────────────────────────────────────────
 function aiDir() {
   const head = G.e.body[0];
